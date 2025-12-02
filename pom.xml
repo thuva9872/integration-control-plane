@@ -27,7 +27,7 @@
     <artifactId>integration-control-plane-parent</artifactId>
     <packaging>pom</packaging>
     <name>WSO2 Integration Control Plane - Parent</name>
-    <version>1.2.0</version>
+    <version>1.2.0.1-SNAPSHOT</version>
 
     <licenses>
         <license>
@@ -552,5 +552,5 @@
         
         <!-- Maven plugins -->
         <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
-    </properties>
+    <project.scm.id>wso2-scm-server</project.scm.id></properties>
 </project>

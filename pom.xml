@@ -438,6 +438,11 @@
                 <artifactId>immutables-exceptions</artifactId>
                 <version>${com.hubspot.immutables.version}</version>
             </dependency>
+            <dependency>
+                <groupId>javax.validation</groupId>
+                <artifactId>validation-api</artifactId>
+                <version>${javax.validation.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -542,6 +547,7 @@
         <maven.war.plugin.version>3.3.2</maven.war.plugin.version>
         <mi.user.core.version>4.2.0</mi.user.core.version>
         <com.hubspot.immutables.version>1.11.2</com.hubspot.immutables.version>
+        <javax.validation.version>2.0.1.Final</javax.validation.version>
         
         <!-- Jetty -->
         <jetty.version>9.4.58.v20250814</jetty.version>

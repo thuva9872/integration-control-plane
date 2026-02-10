@@ -28,7 +28,10 @@ function SSO() {
     const history = useHistory();
 
     useEffect(() => {
-        signIn(window.sso.authorizationRequestParams)
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has("code")) {
+            signIn(window.sso.authorizationRequestParams);
+        }
     },[])
 
     useEffect(() => {

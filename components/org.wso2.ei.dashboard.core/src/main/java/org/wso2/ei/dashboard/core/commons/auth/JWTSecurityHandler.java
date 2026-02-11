@@ -22,6 +22,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.nimbusds.jwt.JWT;
 import com.nimbusds.jwt.JWTParser;
+import com.nimbusds.oauth2.sdk.id.ClientID;
+import io.asgardeo.java.oidc.sdk.config.model.OIDCAgentConfig;
 import io.asgardeo.java.oidc.sdk.exception.SSOAgentServerException;
 import io.asgardeo.java.oidc.sdk.validators.IDTokenValidator;
 import org.apache.http.HttpStatus;
@@ -39,6 +41,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.text.ParseException;
+import java.util.List;
+import java.util.Set;
 
 /**
  * This class implements SecurityHandler to implement the authentication logic for a JWT self contained token.
@@ -53,17 +57,53 @@ public class JWTSecurityHandler implements SecurityHandler {
         JWT idTokenJWT = null;
         try {
             idTokenJWT = JWTParser.parse(token);
-            if (config.getOidcAgentConfig().getJwksEndpoint() == null) {
-                config.getOidcAgentConfig()
-                        .setJwksEndpoint(getJWKSEndpointFromWellKnownEndpoint(config.getWellKnownEndpoint()));
+            OIDCAgentConfig oidcAgentConfig = config.getOidcAgentConfig();
+            if (oidcAgentConfig.getJwksEndpoint() == null) {
+                oidcAgentConfig.setJwksEndpoint(
+                        getJWKSEndpointFromWellKnownEndpoint(config.getWellKnownEndpoint()));
             }
-            IDTokenValidator validator = new IDTokenValidator(config.getOidcAgentConfig(), idTokenJWT);
+            OIDCAgentConfig validationConfig = resolveValidationConfig(idTokenJWT, oidcAgentConfig);
+            IDTokenValidator validator = new IDTokenValidator(validationConfig, idTokenJWT);
             validator.validate(null);
             return true;
         } catch (DashboardServerException | ParseException | SSOAgentServerException e) {
             logger.error("Error validating the access token", e);
         }
         return false;
+    }
+
+    /**
+     * Resolves the OIDCAgentConfig to use for validation. The Nimbus IDTokenValidator only checks the
+     * token audience against the client_id. Azure AD access tokens have the API URI (e.g. api://...)
+     * as audience instead of the client_id. When the token's audience matches an additional trusted
+     * audience, this method creates a new config using that audience as the client_id so the Nimbus
+     * validator accepts it.
+     */
+    private OIDCAgentConfig resolveValidationConfig(JWT jwt, OIDCAgentConfig originalConfig)
+            throws ParseException {
+
+        String clientId = originalConfig.getConsumerKey().getValue();
+        List<String> audiences = jwt.getJWTClaimsSet().getAudience();
+
+        if (audiences.contains(clientId)) {
+            return originalConfig;
+        }
+
+        Set<String> trustedAudiences = originalConfig.getTrustedAudience();
+        for (String aud : audiences) {
+            if (trustedAudiences.contains(aud)) {
+                OIDCAgentConfig validationConfig = new OIDCAgentConfig();
+                validationConfig.setIssuer(originalConfig.getIssuer());
+                validationConfig.setConsumerKey(new ClientID(aud));
+                validationConfig.setConsumerSecret(originalConfig.getConsumerSecret());
+                validationConfig.setJwksEndpoint(originalConfig.getJwksEndpoint());
+                validationConfig.setSignatureAlgorithm(originalConfig.getSignatureAlgorithm());
+                validationConfig.setTrustedAudience(trustedAudiences);
+                return validationConfig;
+            }
+        }
+
+        return originalConfig;
     }
 
     @Override

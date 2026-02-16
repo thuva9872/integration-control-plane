@@ -60,4 +60,4 @@ public class ServerStartUpTest {
         logReader.stop();
         Assert.assertFalse(logReader.getLogs().contains("ERROR"), "Dashboard started with errors.");
     }
-}
+} 

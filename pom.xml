@@ -27,7 +27,7 @@
     <artifactId>integration-control-plane-parent</artifactId>
     <packaging>pom</packaging>
     <name>WSO2 Integration Control Plane - Parent</name>
-    <version>1.2.0.6-SNAPSHOT</version>
+    <version>1.2.0.6</version>
 
     <licenses>
         <license>
@@ -41,7 +41,7 @@
         <developerConnection>scm:git:https://github.com/wso2-support/integration-control-plane.git</developerConnection>
         <connection>scm:git:https://github.com/wso2-support/integration-control-plane.git</connection>
         
-      <tag>HEAD</tag>
+      <tag>v1.2.0.6</tag>
   </scm>
 
     <modules>

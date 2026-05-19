@@ -36,3 +36,10 @@ password = "wso2carbon"
 
 [user_access]
 make_non_admin_users_read_only = false
+
+# TLS configuration for the HTTPS listener.
+# By default, SSLv3, TLSv1, and TLSv1.1 are always disabled.
+# Uncomment and adjust the following to restrict protocols and cipher suites further.
+#[transport.https]
+#protocols = "TLSv1.2,TLSv1.3"
+#preferred_ciphers = "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"

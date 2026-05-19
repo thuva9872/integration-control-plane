@@ -120,6 +120,8 @@ public class DashboardServer {
     private static String keyStorePassword;
     private static String keyManagerPassword;
     private static String jksFileLocation;
+    private static String httpsProtocols;
+    private static String httpsPreferredCiphers;
     private static SSOConfig ssoConfig;
     private static Thread shutdownHook;
     private static SecretResolver secretResolver = new SecretResolver();
@@ -128,6 +130,10 @@ public class DashboardServer {
     private static final String MAKE_NON_ADMIN_USERS_READ_ONLY = "make_non_admin_users_read_only";
     private static final String HTTP_PROTOCOL = "http";
     private static final String HTTPS_PROTOCOL = "https";
+    private static final String TOML_HTTPS_PROTOCOLS = "transport.https.protocols";
+    private static final String TOML_HTTPS_PREFERRED_CIPHERS = "transport.https.preferred_ciphers";
+    private static final String JDK_TLS_EPHEMERAL_DH_KEY_SIZE = "jdk.tls.ephemeralDHKeySize";
+    private static final String DEFAULT_EPHEMERAL_DH_KEY_SIZE = "2048";
 
     private static final Logger logger = LogManager.getLogger(DashboardServer.class);
 
@@ -243,6 +249,7 @@ public class DashboardServer {
             sslContextFactory.setKeyStorePath(jksPath);
             sslContextFactory.setKeyStorePassword(keyStorePassword);
             sslContextFactory.setKeyManagerPassword(keyManagerPassword);
+            configureTLS(sslContextFactory);
             SslConnectionFactory sslConnectionFactory = new SslConnectionFactory(sslContextFactory, "http/1.1");
             serverConnector = new ServerConnector(server, new DetectorConnectionFactory(sslConnectionFactory),
                     new HttpConnectionFactory(httpConfiguration));
@@ -251,6 +258,21 @@ public class DashboardServer {
         }
         serverConnector.setPort(serverPort);
         server.addConnector(serverConnector);
+    }
+
+    private void configureTLS(SslContextFactory sslContextFactory) {
+        sslContextFactory.setExcludeProtocols("SSLv2Hello", "SSLv3", "TLSv1", "TLSv1.1");
+        if (StringUtils.isNotEmpty(httpsProtocols)) {
+            String[] protocols = Arrays.stream(httpsProtocols.split(","))
+                    .map(String::trim).filter(StringUtils::isNotEmpty).toArray(String[]::new);
+            sslContextFactory.setIncludeProtocols(protocols);
+        }
+        if (StringUtils.isNotEmpty(httpsPreferredCiphers)) {
+            String[] ciphers = Arrays.stream(httpsPreferredCiphers.split(","))
+                    .map(String::trim).filter(StringUtils::isNotEmpty).toArray(String[]::new);
+            sslContextFactory.setIncludeCipherSuites(ciphers);
+        }
+        sslContextFactory.setUseCipherSuitesOrder(true);
     }
 
     private void setServerHandlers(String dashboardHome, Server server) {
@@ -372,6 +394,16 @@ public class DashboardServer {
                     String.valueOf(parsedConfigs.get(TOML_MAKE_NON_ADMIN_USERS_READ_ONLY)));
         }
         properties.put(MAKE_NON_ADMIN_USERS_READ_ONLY, String.valueOf(makeNonAdminUsersReadOnly));
+
+        if (parsedConfigs.containsKey(TOML_HTTPS_PROTOCOLS)) {
+            httpsProtocols = (String) parsedConfigs.get(TOML_HTTPS_PROTOCOLS);
+        }
+        if (parsedConfigs.containsKey(TOML_HTTPS_PREFERRED_CIPHERS)) {
+            httpsPreferredCiphers = (String) parsedConfigs.get(TOML_HTTPS_PREFERRED_CIPHERS);
+        }
+        if (System.getProperty(JDK_TLS_EPHEMERAL_DH_KEY_SIZE) == null) {
+            System.setProperty(JDK_TLS_EPHEMERAL_DH_KEY_SIZE, DEFAULT_EPHEMERAL_DH_KEY_SIZE);
+        }
 
         System.setProperties(properties);
     }

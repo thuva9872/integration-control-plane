@@ -122,6 +122,7 @@ public class DashboardServer {
     private static String jksFileLocation;
     private static String httpsProtocols;
     private static String httpsPreferredCiphers;
+    private static String httpsExcludedProtocols;
     private static SSOConfig ssoConfig;
     private static Thread shutdownHook;
     private static SecretResolver secretResolver = new SecretResolver();
@@ -132,6 +133,8 @@ public class DashboardServer {
     private static final String HTTPS_PROTOCOL = "https";
     private static final String TOML_HTTPS_PROTOCOLS = "transport.https.protocols";
     private static final String TOML_HTTPS_PREFERRED_CIPHERS = "transport.https.preferred_ciphers";
+    private static final String TOML_HTTPS_EXCLUDED_PROTOCOLS = "transport.https.excluded_protocols";
+    private static final String DEFAULT_EXCLUDED_PROTOCOLS = "SSLv2Hello,SSLv3,TLSv1,TLSv1.1";
     private static final String JDK_TLS_EPHEMERAL_DH_KEY_SIZE = "jdk.tls.ephemeralDHKeySize";
     private static final String DEFAULT_EPHEMERAL_DH_KEY_SIZE = "2048";
 
@@ -261,7 +264,11 @@ public class DashboardServer {
     }
 
     private void configureTLS(SslContextFactory sslContextFactory) {
-        sslContextFactory.setExcludeProtocols("SSLv2Hello", "SSLv3", "TLSv1", "TLSv1.1");
+        String excludedProtocols = StringUtils.isNotEmpty(httpsExcludedProtocols)
+                ? httpsExcludedProtocols : DEFAULT_EXCLUDED_PROTOCOLS;
+        String[] excluded = Arrays.stream(excludedProtocols.split(","))
+                .map(String::trim).filter(StringUtils::isNotEmpty).toArray(String[]::new);
+        sslContextFactory.setExcludeProtocols(excluded);
         if (StringUtils.isNotEmpty(httpsProtocols)) {
             String[] protocols = Arrays.stream(httpsProtocols.split(","))
                     .map(String::trim).filter(StringUtils::isNotEmpty).toArray(String[]::new);
@@ -400,6 +407,9 @@ public class DashboardServer {
         }
         if (parsedConfigs.containsKey(TOML_HTTPS_PREFERRED_CIPHERS)) {
             httpsPreferredCiphers = (String) parsedConfigs.get(TOML_HTTPS_PREFERRED_CIPHERS);
+        }
+        if (parsedConfigs.containsKey(TOML_HTTPS_EXCLUDED_PROTOCOLS)) {
+            httpsExcludedProtocols = (String) parsedConfigs.get(TOML_HTTPS_EXCLUDED_PROTOCOLS);
         }
         if (System.getProperty(JDK_TLS_EPHEMERAL_DH_KEY_SIZE) == null) {
             System.setProperty(JDK_TLS_EPHEMERAL_DH_KEY_SIZE, DEFAULT_EPHEMERAL_DH_KEY_SIZE);

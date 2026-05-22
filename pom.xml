@@ -27,7 +27,7 @@
     <artifactId>integration-control-plane-parent</artifactId>
     <packaging>pom</packaging>
     <name>WSO2 Integration Control Plane - Parent</name>
-    <version>1.2.0.6</version>
+    <version>1.2.0.6-CBUSUB-hotfix-1-SNAPSHOT</version>
 
     <licenses>
         <license>

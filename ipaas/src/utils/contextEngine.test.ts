@@ -52,7 +52,7 @@ import {
   visibilityError,
   visibilityTags,
   visibilityWarnings,
-  withUploadRules,
+  withSourceVisibilityRules,
   buildMcpClientConfig,
   evidenceLocationLabel,
   ownerGrantId,
@@ -94,11 +94,13 @@ import {
   filterConnectors,
   grantAllowsQuery,
   invalidSourceFields,
+  isFieldVisible,
   isFormComplete,
   isHttpUrl,
   isLlmValid,
   isNameStepValid,
   isSourceValid,
+  visibleFields,
   isSourcesStepValid,
   resolveEngineBaseUrl,
   roleGrantId,
@@ -180,7 +182,7 @@ describe('source validation', () => {
 
   it('requires the per-connector fields', () => {
     expect(isSourceValid(blankSource('gdrive'))).toBe(false);
-    expect(isSourceValid(withValues('gdrive', { folderId: 'abc', apiKey: 'k' }))).toBe(true);
+    expect(isSourceValid(withValues('gdrive', { folderId: 'abc', clientId: 'c', clientSecret: 's', refreshToken: 'r' }))).toBe(true);
     expect(isSourceValid(withValues('website', { urls: 'https://a.com\nnot-a-url' }))).toBe(false);
     expect(isSourceValid(withValues('website', { urls: 'https://a.com' }))).toBe(true);
     expect(isSourceValid(upload())).toBe(true);
@@ -194,11 +196,11 @@ describe('source validation', () => {
     expect(sourceIncompleteReason(src)).toBe('Base URL invalid');
     expect(sourceIncompleteReason(withValues('confluence', { baseUrl: 'https://x.atlassian.net/wiki' }))).toBe('Space Key missing');
     expect(sourceIncompleteReason(upload())).toBe('');
-    // Uploads need no rules; connectors still do.
     expect(sourceIncompleteReason(blankSource('upload'))).toBe('');
-    const drive = withValues('gdrive', { folderId: 'abc', apiKey: 'k' });
-    expect(sourceIncompleteReason({ ...drive, audience: [] })).toBe('Visibility missing');
-    expect(sourceIncompleteReason({ ...drive, audience: [{ group: 'engineering', role: '' }] })).toBe('Visibility incomplete');
+    // Every source defaults to "everyone who can query"; only an empty "only some roles" choice is incomplete.
+    const drive = withValues('gdrive', { folderId: 'abc', clientId: 'c', clientSecret: 's', refreshToken: 'r' });
+    expect(sourceIncompleteReason(drive)).toBe('');
+    expect(sourceIncompleteReason({ ...drive, stagedVisibility: { kind: 'roles', roles: [] } })).toBe('Choose who can see this content');
   });
 
   it('rejects empty and duplicate names', () => {
@@ -214,8 +216,54 @@ describe('source validation', () => {
     expect(sourcesStepBlocker([a])).toBeNull();
     expect(sourcesStepBlocker([a, upload()])).toBe('Give each source a unique name');
     expect(sourcesStepBlocker([a, withValues('github', {}, 'Platform docs')])).toBe('Complete “Platform docs” to continue');
-    expect(sourcesStepBlocker([a, { ...withValues('gdrive', { folderId: 'abc', apiKey: 'k' }, 'Second'), audience: [] }])).toBe('Complete “Second” to continue');
+    expect(sourcesStepBlocker([a, { ...withValues('gdrive', { folderId: 'abc', apiKey: 'k' }, 'Second'), stagedVisibility: { kind: 'roles', roles: [] } }])).toBe('Complete “Second” to continue');
     expect(isSourcesStepValid([a, upload('Second')])).toBe(true);
+  });
+
+  it('shows and requires only the fields of the chosen Salesforce auth flow', () => {
+    const sf = SOURCE_CONNECTORS.find((c) => c.id === 'salesforce')!;
+    const refreshToken = sf.fields.find((f) => f.key === 'refreshToken')!;
+    const token = sf.fields.find((f) => f.key === 'token')!;
+    const clientId = sf.fields.find((f) => f.key === 'clientId')!;
+
+    // Default flow is client credentials: the Connected App fields show, the flow-specific secrets do not.
+    expect(blankSource('salesforce').values.authType).toBe('client_credentials');
+    expect(isFieldVisible(clientId, { authType: 'client_credentials' })).toBe(true);
+    expect(isFieldVisible(refreshToken, { authType: 'client_credentials' })).toBe(false);
+    expect(isFieldVisible(refreshToken, { authType: 'refresh_token' })).toBe(true);
+    expect(isFieldVisible(token, { authType: 'bearer' })).toBe(true);
+    expect(isFieldVisible(clientId, { authType: 'bearer' })).toBe(false);
+
+    const base = { baseUrl: 'https://acme.my.salesforce.com', sobject: 'Account', fields: 'Name' };
+    // Client credentials is complete with the app key and secret; its hidden refresh token is not demanded.
+    expect(isSourceValid(withValues('salesforce', { ...base, clientId: 'c', clientSecret: 's' }))).toBe(true);
+    // Refresh-token flow additionally requires the refresh token.
+    expect(isSourceValid(withValues('salesforce', { ...base, authType: 'refresh_token', clientId: 'c', clientSecret: 's' }))).toBe(false);
+    expect(isSourceValid(withValues('salesforce', { ...base, authType: 'refresh_token', clientId: 'c', clientSecret: 's', refreshToken: 'r' }))).toBe(true);
+    // Bearer flow needs only the access token.
+    expect(invalidSourceFields(withValues('salesforce', { ...base, authType: 'bearer' })).map((f) => f.key)).toEqual(['token']);
+    expect(isSourceValid(withValues('salesforce', { ...base, authType: 'bearer', token: 't' }))).toBe(true);
+
+    expect(visibleFields(sf, { authType: 'bearer' }).map((f) => f.key)).not.toContain('refreshToken');
+  });
+
+  it('shows and requires only the fields of the chosen Google Drive auth flow', () => {
+    const gd = SOURCE_CONNECTORS.find((c) => c.id === 'gdrive')!;
+    const clientEmail = gd.fields.find((f) => f.key === 'clientEmail')!;
+    const refreshToken = gd.fields.find((f) => f.key === 'refreshToken')!;
+
+    // Default flow is refresh token: its credentials show, the service-account fields do not.
+    expect(blankSource('gdrive').values.authType).toBe('refresh_token');
+    expect(isFieldVisible(refreshToken, { authType: 'refresh_token' })).toBe(true);
+    expect(isFieldVisible(clientEmail, { authType: 'refresh_token' })).toBe(false);
+    expect(isFieldVisible(clientEmail, { authType: 'service_account' })).toBe(true);
+
+    // Refresh-token flow needs the client id, secret and refresh token besides the folder.
+    expect(isSourceValid(withValues('gdrive', { folderId: 'f', clientId: 'c', clientSecret: 's' }))).toBe(false);
+    expect(isSourceValid(withValues('gdrive', { folderId: 'f', clientId: 'c', clientSecret: 's', refreshToken: 'r' }))).toBe(true);
+    // Bearer flow needs only the access token; service account needs the email and key path (subject is optional).
+    expect(isSourceValid(withValues('gdrive', { folderId: 'f', authType: 'bearer', token: 't' }))).toBe(true);
+    expect(invalidSourceFields(withValues('gdrive', { folderId: 'f', authType: 'service_account' })).map((f) => f.key)).toEqual(['clientEmail', 'privateKeyPath']);
   });
 
   it('needs at least one complete, unique visibility rule', () => {
@@ -326,7 +374,7 @@ describe('wire payloads', () => {
     ).toEqual({ a: 'developer' });
     expect(audienceMappingFromRules(undefined)).toEqual({});
     const src = { id: 's1', name: 'Wiki', type: 'confluence', state: 'ready' };
-    expect(sourceAsConfig(src)).toEqual({ type: 'confluence', name: 'Wiki', values: {}, audience: [{ group: '', role: '' }] });
+    expect(sourceAsConfig(src)).toEqual({ type: 'confluence', name: 'Wiki', values: {}, audience: [], stagedVisibility: { kind: 'everyone' } });
     expect(sourceAsConfig(src, [{ group: 'eng', role: 'admin' }]).audience).toEqual([{ group: 'eng', role: 'admin' }]);
   });
 
@@ -349,6 +397,16 @@ describe('wire payloads', () => {
     expect(payload.sources[0].credentials).toEqual({ accessToken: 'ghp_x' });
     expect(payload.llm).toEqual({ provider: 'anthropic', model: 'claude-sonnet-4-6', apiKey: 'sk-ant' });
     expect(payload.embedding.baseUrl).toBeUndefined();
+  });
+
+  it('sends only the settings and credentials the chosen auth flow uses', () => {
+    const sf = withValues('salesforce', { baseUrl: 'https://acme.my.salesforce.com', sobject: 'Account', fields: 'Name, Industry', clientId: 'c', clientSecret: 's', refreshToken: 'stale' });
+    const form = { ...completeForm(), sources: [sf] };
+    const source = toConfigurationPayload(toCreateInput(form)).sources[0];
+    // Client credentials is the default flow: the Connected App key is a setting, the hidden refresh token is dropped.
+    expect(source.settings).toMatchObject({ authType: 'client_credentials', baseUrl: 'https://acme.my.salesforce.com', sobject: 'Account', fields: 'Name, Industry', clientId: 'c', apiVersion: '59.0' });
+    expect(source.credentials).toEqual({ clientSecret: 's' });
+    expect(source.credentials.refreshToken).toBeUndefined();
   });
 
   it('summarizes sources for review', () => {
@@ -505,9 +563,11 @@ describe('owner grant and evidence labels', () => {
     expect(evidenceLocationLabel(undefined)).toBe('');
   });
 
-  it('restores drafts saved before visibility rules existed with one blank rule', () => {
+  it('restores a draft saved before visibility existed with no rules and everyone visibility', () => {
     const old = JSON.stringify({ v: 1, savedAt: 'x', form: { sources: [{ type: 'upload', name: 'Files', values: {} }], roles: [], name: 'n', description: '' } });
-    expect(fromDraft(old)?.form.sources[0].audience).toEqual([{ group: '', role: '' }]);
+    const restored = fromDraft(old)?.form.sources[0];
+    expect(restored?.audience).toEqual([]);
+    expect(restored?.stagedVisibility).toEqual({ kind: 'everyone' });
   });
 });
 
@@ -746,9 +806,14 @@ describe('file uploads', () => {
       { group: 'admin', role: 'admin' },
       { group: 'viewer', role: 'viewer' },
     ]);
-    const sources = withUploadRules([upload('Files'), withValues('gdrive', { folderId: 'abc', apiKey: 'k' })], ['admin']);
+    // An upload allows every granted role; a connector's audience comes from its own visibility.
+    const sources = withSourceVisibilityRules(
+      [upload('Files'), withValues('gdrive', { folderId: 'abc', apiKey: 'k' }), { ...withValues('gdrive', { folderId: 'x', apiKey: 'y' }), stagedVisibility: { kind: 'roles', roles: ['viewer'] } }],
+      ['admin'],
+    );
     expect(sources[0].audience).toEqual([{ group: 'admin', role: 'admin' }]);
-    expect(sources[1].audience).toEqual([RULE]);
+    expect(sources[1].audience).toEqual([{ group: 'admin', role: 'admin' }]);
+    expect(sources[2].audience).toEqual([{ group: 'viewer', role: 'viewer' }]);
     expect(visibilityError({ kind: 'roles', roles: [] })).toBe('Choose at least one role');
     expect(visibilityError({ kind: 'everyone' })).toBe('');
   });
@@ -776,9 +841,9 @@ describe('file uploads', () => {
 
   it('finds where query access and visibility disagree across an engine', () => {
     const everyone = ['admin', 'developer', 'viewer'];
-    const drive = { ...withValues('gdrive', { folderId: 'abc', apiKey: 'k' }, 'Drive'), audience: [{ group: 'eng', role: 'viewer' }] };
+    const drive = { ...withValues('gdrive', { folderId: 'abc', apiKey: 'k' }, 'Drive'), stagedVisibility: { kind: 'roles' as const, roles: ['viewer'] } };
     const files = { ...upload('Files'), stagedVisibility: { kind: 'everyone' as const } };
-    // Uploads shared with everyone cover every role, so nobody gets empty answers.
+    // Files shared with everyone cover every role; the drive is shared only with viewer.
     expect(sharingMismatches([drive, files], ['developer'], everyone, ['admin'])).toEqual({ seeNothing: [], cannotQuery: ['viewer'], hiddenFromMe: ['Drive'] });
     // With only the connector, Developer can query but sees nothing.
     expect(sharingMismatches([drive], ['developer', 'viewer'], everyone, ['viewer'])).toEqual({ seeNothing: ['developer'], cannotQuery: [], hiddenFromMe: [] });

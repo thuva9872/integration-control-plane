@@ -58,8 +58,17 @@ export const SOURCE_CATEGORIES: { id: SourceCategory; label: string }[] = [
 const F = (key: string, label: string, kind: SourceFieldKind, extra: Partial<SourceFieldDef> = {}): SourceFieldDef => ({ key, label, kind, required: true, ...extra });
 /** Optional field. */
 const O = (key: string, label: string, kind: SourceFieldKind, extra: Partial<SourceFieldDef> = {}): SourceFieldDef => ({ key, label, kind, required: false, ...extra });
+/** Put a run of fields under one collapsible section heading; spread the result into a connector's `fields`. Pass `{ label, collapsed }` to start the section collapsed. */
+const G = (group: string | { label: string; collapsed?: boolean }, ...fields: SourceFieldDef[]): SourceFieldDef[] => {
+  const label = typeof group === 'string' ? group : group.label;
+  const collapsed = typeof group === 'string' ? false : !!group.collapsed;
+  return fields.map((f) => ({ ...f, group: label, ...(collapsed ? { groupCollapsed: true } : {}) }));
+};
 
 const MS_GRAPH_APP = [F('tenantId', 'Tenant ID', 'text'), F('clientId', 'Client ID', 'text'), F('clientSecret', 'Client Secret', 'secret')];
+
+/** Show a field only for the chosen auth flow (matches a connector's `authType` discriminator). */
+const authIs = (...flows: string[]): SourceFieldDef['showWhen'] => ({ field: 'authType', equals: flows });
 const SQL_TABLES = (port: string) => [
   F('host', 'Host', 'text'),
   F('port', 'Port', 'text', { defaultValue: port }),
@@ -119,12 +128,35 @@ export const SOURCE_CONNECTORS: SourceConnector[] = [
   {
     id: 'gdrive',
     name: 'Google Drive',
-    description: 'Documents in a shared folder.',
+    description: 'A Drive folder subtree, backfilled and kept in sync by the Changes API.',
     category: 'cloud-storage',
     popular: true,
     logo: `${RAG_LOGO_BASE}googledrive.svg`,
     icon: 'folder',
-    fields: [F('folderId', 'Folder ID', 'text'), F('apiKey', 'API Key', 'secret')],
+    // Mirrors the Ballerina `google_drive` connector's GoogleDriveSettings: an auth block
+    // (one of three OAuth2 flows, chosen by authType) plus the folder and sync options.
+    fields: [
+      ...G(
+        'Connection',
+        F('authType', 'Authentication', 'select', {
+          defaultValue: 'refresh_token',
+          options: [
+            { value: 'refresh_token', label: 'Refresh token' },
+            { value: 'bearer', label: 'Access token' },
+            { value: 'service_account', label: 'Service account' },
+          ],
+          helper: 'OAuth2 flow used to connect.',
+        }),
+        F('clientId', 'Client ID', 'text', { showWhen: authIs('refresh_token') }),
+        F('clientSecret', 'Client Secret', 'secret', { showWhen: authIs('refresh_token') }),
+        F('refreshToken', 'Refresh Token', 'secret', { showWhen: authIs('refresh_token') }),
+        F('token', 'Access Token', 'secret', { showWhen: authIs('bearer'), helper: 'A pre-obtained token used directly; it is not refreshed, so it stops working when it expires.' }),
+        F('clientEmail', 'Service Account Email', 'text', { showWhen: authIs('service_account') }),
+        F('privateKeyPath', 'Private Key Path', 'text', { showWhen: authIs('service_account'), helper: 'Path to the service account private key in PEM form.' }),
+        O('subject', 'Impersonated User', 'text', { showWhen: authIs('service_account'), helper: 'Optional user to impersonate under domain-wide delegation.' }),
+      ),
+      ...G('Data to sync', F('folderId', 'Folder ID', 'text', { helper: 'The Drive folder to sync; its whole subtree is backfilled.' })),
+    ],
     summaryKeys: ['folderId'],
   },
   {
@@ -332,11 +364,37 @@ export const SOURCE_CONNECTORS: SourceConnector[] = [
   {
     id: 'salesforce',
     name: 'Salesforce',
-    description: 'Knowledge articles and case notes.',
+    description: 'Records of an object, synced by SOQL backfill and Change Data Capture.',
     category: 'saas',
     icon: 'cloud',
-    fields: [F('instanceUrl', 'Instance URL', 'url'), F('clientId', 'Consumer Key', 'text'), F('clientSecret', 'Consumer Secret', 'secret'), F('refreshToken', 'Refresh Token', 'secret')],
-    summaryKeys: ['instanceUrl'],
+    // Mirrors the Ballerina `salesforce` connector's SalesforceSettings: an auth block
+    // (one of three OAuth2 flows, chosen by authType) plus the object, fields and sync options.
+    fields: [
+      ...G(
+        'Connection',
+        F('baseUrl', 'Instance URL', 'url', { placeholder: 'https://your-domain.my.salesforce.com', helper: 'Your My Domain URL; the OAuth token endpoint is derived from it.' }),
+        F('authType', 'Authentication', 'select', {
+          defaultValue: 'client_credentials',
+          options: [
+            { value: 'client_credentials', label: 'Client credentials' },
+            { value: 'refresh_token', label: 'Refresh token' },
+            { value: 'bearer', label: 'Access token' },
+          ],
+          helper: 'OAuth2 flow used to connect.',
+        }),
+        F('clientId', 'Consumer Key', 'text', { showWhen: authIs('client_credentials', 'refresh_token') }),
+        F('clientSecret', 'Consumer Secret', 'secret', { showWhen: authIs('client_credentials', 'refresh_token') }),
+        F('refreshToken', 'Refresh Token', 'secret', { showWhen: authIs('refresh_token') }),
+        F('token', 'Access Token', 'secret', { showWhen: authIs('bearer'), helper: 'A pre-obtained token used directly; it is not refreshed, so it stops working when it expires.' }),
+      ),
+      ...G(
+        'Data to sync',
+        F('sobject', 'Object', 'text', { placeholder: 'Account', helper: 'The SObject to sync. It must have Change Data Capture enabled.' }),
+        F('fields', 'Fields', 'text', { placeholder: 'Name, Industry, Description', helper: 'Comma-separated business fields to ingest as content.' }),
+      ),
+      ...G({ label: 'Sync options', collapsed: true }, O('apiVersion', 'API Version', 'text', { defaultValue: '59.0' })),
+    ],
+    summaryKeys: ['baseUrl', 'sobject'],
   },
   { id: 'hubspot', name: 'HubSpot', description: 'Knowledge base articles and notes.', category: 'saas', icon: 'chat', fields: [F('privateAppToken', 'Private App Token', 'secret')], summaryKeys: [] },
   { id: 'intercom', name: 'Intercom', description: 'Help center articles and conversations.', category: 'saas', icon: 'headset', fields: [F('accessToken', 'Access Token', 'secret')], summaryKeys: [] },
@@ -389,16 +447,30 @@ export const SOURCE_CONNECTORS: SourceConnector[] = [
 
 export const CONNECTOR_BY_ID: Record<string, SourceConnector> = Object.fromEntries(SOURCE_CONNECTORS.map((c) => [c.id, c]));
 
+/**
+ * Connectors a source can be created from today. Every other connector is listed
+ * in the catalog as "Coming soon" and cannot be added yet. Flip an id in here as
+ * its backend lands — the catalog, quick-add row and forms pick it up with no
+ * other change.
+ */
+export const ENABLED_CONNECTOR_IDS = new Set<string>(['upload', 'gdrive', 'salesforce']);
+
+/** Whether a source can be created from this connector yet. */
+export const isConnectorEnabled = (id: string): boolean => ENABLED_CONNECTOR_IDS.has(id);
+
 export const POPULAR_CONNECTORS: SourceConnector[] = SOURCE_CONNECTORS.filter((c) => c.popular);
+
+/** Live connectors offered as quick-add shortcuts, most useful first. */
+export const QUICK_ADD_CONNECTORS: SourceConnector[] = SOURCE_CONNECTORS.filter((c) => isConnectorEnabled(c.id));
 
 /** Connectors rendered per catalog page; the next page loads as the list scrolls into view. */
 export const CATALOG_PAGE_SIZE = 24;
 
-/** Blank config for a connector; `name` defaults to the connector's display name and fields to their defaults. */
+/** Blank config for a connector; `name` defaults to the connector's display name, fields to their defaults, and visibility to everyone who can query. */
 export function blankSource(connectorId: string): ContextSourceConfig {
   const connector = CONNECTOR_BY_ID[connectorId];
   if (!connector) throw new Error(`Unknown source connector: ${connectorId}`);
-  return { type: connector.id, name: connector.name, values: Object.fromEntries(connector.fields.map((f) => [f.key, f.defaultValue ?? ''])), audience: [{ group: '', role: '' }] };
+  return { type: connector.id, name: connector.name, values: Object.fromEntries(connector.fields.map((f) => [f.key, f.defaultValue ?? ''])), audience: [], stagedVisibility: EVERYONE_VISIBILITY };
 }
 
 // ── Step 3: LLM providers (embedding providers are shared with RAG) ─────────

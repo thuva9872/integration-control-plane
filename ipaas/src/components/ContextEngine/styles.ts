@@ -27,6 +27,30 @@ export const stepHintSx = { color: 'text.secondary', mb: 2.5 } as const;
 /** Vertical field stack within a step. */
 export const fieldStackSx = { gap: 2.5, maxWidth: 560 } as const;
 
+/** Clickable subheading that collapses a group of connector fields. */
+export const fieldGroupToggleSx = {
+  alignSelf: 'flex-start',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 0.5,
+  fontWeight: 600,
+  fontSize: 12,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'text.secondary',
+  '&:hover': { color: 'text.primary' },
+} as const;
+
+/** The chevron on a group header; points down when the group is open. */
+export const fieldGroupChevronSx = (open: boolean) =>
+  ({
+    transition: 'transform 0.15s ease',
+    transform: open ? 'rotate(90deg)' : 'none',
+  }) as const;
+
+/** Fields inside a collapsible group, spaced like the main field stack and set off from the header. */
+export const fieldGroupBodySx = { gap: 2.5, pt: 2.5 } as const;
+
 /** Source / provider tile grid spacing. */
 export const tileGridSx = { mb: 3 } as const;
 
@@ -164,6 +188,17 @@ export const catalogSentinelSx = {
   alignItems: 'center',
   gap: 0.5,
   py: 1,
+} as const;
+
+/** Wraps a catalog tile so the "Coming soon" badge can sit over its top-right corner. */
+export const catalogTileWrapSx = { position: 'relative' } as const;
+
+export const comingSoonBadgeSx = {
+  position: 'absolute',
+  top: 8,
+  right: 8,
+  zIndex: 1,
+  pointerEvents: 'none',
 } as const;
 
 export const connectorHeaderSx = {
